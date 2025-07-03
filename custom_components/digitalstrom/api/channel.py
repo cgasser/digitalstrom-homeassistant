@@ -109,12 +109,13 @@ class DigitalstromMeterSensorChannel(DigitalstromChannel):
 
 
 class DigitalstromModbusMeterChannel(DigitalstromChannel):
-    def __init__(self, apartment, meter_id: str, meter_type: str, meter_name: str = None):
+    def __init__(self, apartment, meter_id: str, meter_type: str, meter_name: str = None, device_info: dict = None):
         super().__init__(apartment, meter_id)
         self.meter_type = meter_type
         self.meter_id = meter_id
         self.meter_name = meter_name or f"Meter {meter_id}"
         self.apartment = apartment
+        self.device_info = device_info or {}
         
     async def get_value(self) -> float:
         try:

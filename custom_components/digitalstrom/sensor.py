@@ -324,20 +324,38 @@ async def async_setup_entry(
                     
                     # Only process modbus meters
                     if meter_id and origin.get("type") == "modbus":
-                        _LOGGER.debug("Found modbus meter: %s (%s)", meter_name, meter_type)
+                        # Extract detailed device information from origin
+                        serial_number = origin.get("serialNumber", "unknown")
+                        slave_address = origin.get("slaveAddress", "unknown")
+                        application = origin.get("application", "none")
+                        is_global = origin.get("isGlobal", False)
+                        unit = attributes.get("unit", "")
+                        
+                        _LOGGER.debug("Found modbus meter: %s (%s) - Serial: %s, Address: %s, App: %s, Global: %s", 
+                                    meter_name, meter_type, serial_number, slave_address, application, is_global)
+                        
+                        # Create device info for grouping sensors
+                        device_info = {
+                            "serial_number": serial_number,
+                            "slave_address": slave_address, 
+                            "application": application,
+                            "is_global": is_global,
+                            "meter_name": meter_name,
+                            "unit": unit
+                        }
                         
                         # Create sensors based on meter type
                         if meter_type == "powerMetering":
-                            power_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "power", meter_name)
+                            power_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "power", meter_name, device_info)
                             modbus_sensors.append(DigitalstromModbusMeterSensor(power_channel))
                         elif meter_type == "energyMetering":
-                            energy_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "energy_consumed", meter_name)
+                            energy_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "energy_consumed", meter_name, device_info)
                             modbus_sensors.append(DigitalstromModbusMeterSensor(energy_channel))
                         elif meter_type == "powerProducedMetering":
-                            power_produced_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "power_produced", meter_name)
+                            power_produced_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "power_produced", meter_name, device_info)
                             modbus_sensors.append(DigitalstromModbusMeterSensor(power_produced_channel))
                         elif meter_type == "energyProducedMetering":
-                            energy_produced_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "energy_produced", meter_name)
+                            energy_produced_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "energy_produced", meter_name, device_info)
                             modbus_sensors.append(DigitalstromModbusMeterSensor(energy_produced_channel))
                     else:
                         _LOGGER.debug("Skipping non-modbus meter: %s (origin type: %s)", meter_id, origin.get("type"))
@@ -502,11 +520,38 @@ class DigitalstromModbusMeterSensor(SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
+        # Create device identifier based on serial number and slave address for proper grouping
+        device_info = self.channel.device_info
+        serial_number = device_info.get("serial_number", "unknown")
+        slave_address = device_info.get("slave_address", "unknown")
+        application = device_info.get("application", "none")
+        is_global = device_info.get("is_global", False)
+        
+        # Create unique device identifier
+        device_id = f"modbus_{serial_number}_{slave_address}"
+        
+        # Create meaningful device name
+        if application != "none":
+            device_name = f"Modbus Meter ({application.title()})"
+        else:
+            device_name = f"Modbus Meter"
+            
+        if is_global:
+            device_name += " - Global"
+        else:
+            device_name += f" - Local {slave_address}"
+            
+        device_name += f" SN:{serial_number}"
+        
         return DeviceInfo(
-            identifiers={(DOMAIN, f"modbus_{self.channel.meter_id}")},
-            name=f"{self.channel.meter_name}",
+            identifiers={(DOMAIN, device_id)},
+            name=device_name,
             manufacturer="Digitalstrom",
-            model="Modbus Meter",
+            model="Modbus Energy Meter",
+            serial_number=serial_number,
+            configuration_url=None,
+            # Add extra attributes for better identification
+            via_device=None,
         )
 
     @property
@@ -516,6 +561,21 @@ class DigitalstromModbusMeterSensor(SensorEntity):
     @property
     def native_value(self) -> float:
         return self._state
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return extra state attributes for better device information."""
+        device_info = self.channel.device_info
+        attributes = {
+            "meter_id": self.channel.meter_id,
+            "serial_number": device_info.get("serial_number", "unknown"),
+            "slave_address": device_info.get("slave_address", "unknown"),
+            "application": device_info.get("application", "none"),
+            "is_global": device_info.get("is_global", False),
+            "meter_type": self.channel.meter_type,
+            "unit": device_info.get("unit", ""),
+        }
+        return attributes
 
     async def async_update(self, **kwargs) -> None:
         self._state = await self.channel.get_value()
