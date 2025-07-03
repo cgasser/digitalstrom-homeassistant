@@ -135,15 +135,62 @@ class DigitalstromClient:
         data = await self._request_raw("system/getDSID")
         return data["dSUID"]
 
-    async def request(self, url: str) -> dict:
-        # Send an authenticated request to the server
-        # Previous login via request_app_token or set_app_token is required
+    async def _request_rest_api(self, url: str) -> dict:
+        # Make a request to the REST API (v1) instead of JSON API
         if (self.last_request is None) or (
             self.last_request < time.time() - SESSION_TOKEN_TIMEOUT
         ):
             self._session_token = await self._request_session_token()
+            
+        async with aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(family=socket.AF_INET, ssl=self.ssl),
+            cookies=dict(token=self._session_token),
+            loop=self._loop,
+        ) as session:
+            try:
+                async with session.get(
+                    url=f"https://{self.host}:{self.port}/api/v1/{url}"
+                ) as response:
+                    if response.status not in [200, 403, 500]:
+                        raise ServerError(
+                            f"Unexpected status code received: {response.status}"
+                        )
+                    try:
+                        data = await response.json()
+                    except json.decoder.JSONDecodeError as e:
+                        raise ServerError(f"Failed to decode JSON: {e}") from None
+                    return data
+
+            except aiohttp.client_exceptions.ServerFingerprintMismatch as e:
+                raise InvalidCertificate(e) from None
+            except aiohttp.client_exceptions.ClientConnectorCertificateError as e:
+                raise InvalidCertificate(e) from None
+            except aiohttp.ClientError as e:
+                raise CannotConnect(e) from None
+
+    async def request(self, url: str) -> dict:
+        # Send an authenticated request to the server
+        # Previous login via request_app_token or set_app_token is required
+        
+        # Use REST API for meterings endpoints
+        if "apartment/meterings" in url:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug("Using REST API for: %s", url)
+            logger.debug("Full URL: https://%s:%s/api/v1/%s", self.host, self.port, url)
+            data = await self._request_rest_api(url)
+            logger.debug("REST API response received: %s", data)
+            return data
+        
+        # Use traditional JSON API for other endpoints
+        if (self.last_request is None) or (
+            self.last_request < time.time() - SESSION_TOKEN_TIMEOUT
+        ):
+            self._session_token = await self._request_session_token()
+            
         data = await self._request_raw(url, dict(token=self._session_token))
         self.last_request = time.time()
+        
         return data
 
     def register_event_callback(self, callback: callable) -> None:

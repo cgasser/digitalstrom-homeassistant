@@ -31,7 +31,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .api.channel import DigitalstromMeterSensorChannel, DigitalstromSensorChannel
+from .api.channel import DigitalstromMeterSensorChannel, DigitalstromModbusMeterChannel, DigitalstromSensorChannel
 from .const import CONF_DSUID, DOMAIN
 from .entity import DigitalstromEntity
 
@@ -301,6 +301,57 @@ async def async_setup_entry(
     _LOGGER.debug("Adding %i sensors", len(sensors))
     async_add_entities(sensors)
 
+    # Add modbus meters
+    modbus_sensors = []
+    try:
+        _LOGGER.debug("Attempting to fetch modbus meters from apartment/meterings")
+        # Use the correct digitalSTROM API endpoint for meters
+        meters_data = await apartment.client.request("apartment/meterings")
+        _LOGGER.debug("Meters API response: %s", meters_data)
+        
+        # Handle the nested data structure: {'data': {'meterings': [...]}}
+        if data := meters_data.get("data"):
+            if meters := data.get("meterings"):
+                _LOGGER.debug("Found %d meters in response", len(meters))
+                for meter in meters:
+                    meter_id = meter.get("id")
+                    attributes = meter.get("attributes", {})
+                    meter_name = attributes.get("technicalName", f"Meter {meter_id}")
+                    origin = attributes.get("origin", {})
+                    meter_type = meter.get("type", "")
+                    
+                    _LOGGER.debug("Processing meter: id=%s, type=%s, origin=%s", meter_id, meter_type, origin)
+                    
+                    # Only process modbus meters
+                    if meter_id and origin.get("type") == "modbus":
+                        _LOGGER.debug("Found modbus meter: %s (%s)", meter_name, meter_type)
+                        
+                        # Create sensors based on meter type
+                        if meter_type == "powerMetering":
+                            power_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "power", meter_name)
+                            modbus_sensors.append(DigitalstromModbusMeterSensor(power_channel))
+                        elif meter_type == "energyMetering":
+                            energy_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "energy_consumed", meter_name)
+                            modbus_sensors.append(DigitalstromModbusMeterSensor(energy_channel))
+                        elif meter_type == "powerProducedMetering":
+                            power_produced_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "power_produced", meter_name)
+                            modbus_sensors.append(DigitalstromModbusMeterSensor(power_produced_channel))
+                        elif meter_type == "energyProducedMetering":
+                            energy_produced_channel = DigitalstromModbusMeterChannel(apartment, meter_id, "energy_produced", meter_name)
+                            modbus_sensors.append(DigitalstromModbusMeterSensor(energy_produced_channel))
+                    else:
+                        _LOGGER.debug("Skipping non-modbus meter: %s (origin type: %s)", meter_id, origin.get("type"))
+            else:
+                _LOGGER.debug("No 'meterings' key found in data: %s", data)
+        else:
+            _LOGGER.debug("No 'data' key found in response: %s", meters_data)
+    except Exception as e:
+        _LOGGER.warning("Failed to setup modbus meters: %s", e)
+        _LOGGER.debug("Exception details:", exc_info=True)
+
+    _LOGGER.debug("Adding %i modbus sensors", len(modbus_sensors))
+    async_add_entities(modbus_sensors)
+
 
 class DigitalstromSensor(SensorEntity, DigitalstromEntity):
     def __init__(self, sensor_channel: DigitalstromSensorChannel):
@@ -407,3 +458,64 @@ class DigitalstromMeterSensor(SensorEntity):
             self._state = await self.channel.get_value() / 3600000
         else:
             self._state = await self.channel.get_value()
+
+
+class DigitalstromModbusMeterSensor(SensorEntity):
+    def __init__(self, channel: DigitalstromModbusMeterChannel):
+        self.channel = channel
+        self._attr_unique_id = f"modbus_{channel.meter_id}_{channel.meter_type}"
+        self.entity_id = f"{DOMAIN}.{self._attr_unique_id}"
+        self._attr_should_poll = True
+        self._state = None
+        self._attr_has_entity_name = True
+        
+        if channel.meter_type == "power":
+            self._attr_name = "Power"
+            self._attr_native_unit_of_measurement = UnitOfPower.WATT
+            self._attr_device_class = SensorDeviceClass.POWER
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+            self._attr_suggested_display_precision = 0
+        elif channel.meter_type == "energy_consumed":
+            self._attr_name = "Energy Consumed"
+            self._attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
+            self._attr_device_class = SensorDeviceClass.ENERGY
+            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+            self._attr_suggested_display_precision = 0
+        elif channel.meter_type == "power_produced":
+            self._attr_name = "Power Produced"
+            self._attr_native_unit_of_measurement = UnitOfPower.WATT
+            self._attr_device_class = SensorDeviceClass.POWER
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+            self._attr_suggested_display_precision = 0
+        elif channel.meter_type == "energy_produced":
+            self._attr_name = "Energy Produced"
+            self._attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
+            self._attr_device_class = SensorDeviceClass.ENERGY
+            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+            self._attr_suggested_display_precision = 0
+        else:
+            self._attr_name = f"{channel.meter_type.replace('_', ' ').title()}"
+            self._attr_native_unit_of_measurement = None
+            self._attr_device_class = None
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+            self._attr_suggested_display_precision = 2
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"modbus_{self.channel.meter_id}")},
+            name=f"{self.channel.meter_name}",
+            manufacturer="Digitalstrom",
+            model="Modbus Meter",
+        )
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> float:
+        return self._state
+
+    async def async_update(self, **kwargs) -> None:
+        self._state = await self.channel.get_value()
