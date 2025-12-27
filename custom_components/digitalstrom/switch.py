@@ -1,19 +1,25 @@
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .api.channel import DigitalstromOutputChannel
 from .api.scene import DigitalstromApartmentScene
-from .const import CONF_DSUID, DOMAIN
+from .const import (
+    APARTMENT_SCENE_UPDATE_INTERVAL,
+    APARTMENT_SCENE_UPDATE_INTERVAL_IF_CHANGED,
+    DOMAIN,
+)
 from .entity import DigitalstromEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+SCAN_INTERVAL = timedelta(seconds=30)  # TODO: 10 seconds
 PARALLEL_UPDATES = 1
 
 
@@ -23,8 +29,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the switch platform."""
-    client = hass.data[DOMAIN][config_entry.data[CONF_DSUID]]["client"]
-    apartment = hass.data[DOMAIN][config_entry.data[CONF_DSUID]]["apartment"]
+    apartment = hass.data[DOMAIN][config_entry.unique_id]["apartment"]
 
     switches = []
     for device in apartment.devices.values():
@@ -48,11 +53,10 @@ class DigitalstromSwitch(SwitchEntity, DigitalstromEntity):
         self.device = channel.device
         self.client = self.device.client
         self._attr_should_poll = True
-        self.last_power_state = None
+        self.last_power_state: float | None = None
         self._attr_has_entity_name = False
         self.entity_id = f"{DOMAIN}.{self.device.dsuid}_{channel.index}"
         self._attr_name = self.device.name
-        self.supports_target_value = True
 
     @property
     def is_on(self) -> bool | None:
@@ -70,7 +74,10 @@ class DigitalstromSwitch(SwitchEntity, DigitalstromEntity):
         await self.channel.set_value(0)
 
     async def async_update(self, **kwargs: Any) -> None:
-        self.last_power_state = await self.device.get_power_state()
+        if self.available:
+            self.last_power_state = await self.device.get_power_state()
+        elif self.device.reading_power_state_supported == False:
+            self.device.reading_power_state_supported = None
 
 
 class DigitalstromApartmentSceneSwitch(SwitchEntity):
@@ -79,7 +86,8 @@ class DigitalstromApartmentSceneSwitch(SwitchEntity):
         self.entity_id = (
             f"{DOMAIN}.{self.scene.apartment.dsuid}_{self.scene.call_number}"
         )
-        self._attr_name = self.scene.name
+        self._attr_has_entity_name = True
+        self._attr_translation_key = self.scene.name.lower().replace(" ", "_")
         self._attr_should_poll = True
         self._attr_unique_id: str = (
             f"{self.scene.apartment.dsuid}_scene{self.scene.call_number}"
@@ -99,10 +107,28 @@ class DigitalstromApartmentSceneSwitch(SwitchEntity):
         await self.scene.undo(self.scene.call_number == 90)
 
     async def async_update(self, **kwargs: Any) -> None:
-        await self.scene.get_value()
+        if self.scene.state_name is None:
+            return
+        do_update = False
+        timestamp = datetime.now()
+        if self.scene.force_update:
+            do_update = True
+        elif (
+            self.scene.last_update_timestamp == self.scene.last_change_timestamp
+            and self.scene.last_update_timestamp
+            < timestamp - APARTMENT_SCENE_UPDATE_INTERVAL_IF_CHANGED
+        ):
+            do_update = True
+        elif (
+            self.scene.last_update_timestamp
+            < timestamp - APARTMENT_SCENE_UPDATE_INTERVAL
+        ):
+            do_update = True
+        if do_update:
+            await self.scene.get_value()
 
     @property
-    def device_info(self) -> dict:
+    def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self.scene.apartment.dsuid)},
             name="Apartment",

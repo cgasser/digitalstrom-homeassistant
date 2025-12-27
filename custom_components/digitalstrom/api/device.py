@@ -1,8 +1,14 @@
 import re
+from collections.abc import Callable
+from typing import Self
 
 from .apartment import DigitalstromApartment
 from .client import DigitalstromClient
-from .const import INVERTED_BINARY_INPUTS, NOT_DIMMABLE_OUTPUT_MODES
+from .const import (
+    INVERTED_BINARY_INPUTS,
+    NOT_DIMMABLE_OUTPUT_MODES,
+    SUPPORTED_OUTPUT_CHANNELS,
+)
 from .exceptions import ServerError
 
 
@@ -10,6 +16,13 @@ class DigitalstromDevice:
     def __init__(
         self, client: DigitalstromClient, apartment: DigitalstromApartment, dsuid: str
     ):
+        from .channel import (
+            DigitalstromBinaryInputChannel,
+            DigitalstromButtonChannel,
+            DigitalstromOutputChannel,
+            DigitalstromSensorChannel,
+        )
+
         self.client = client
         self.apartment = apartment
         self.dsuid = dsuid
@@ -18,29 +31,50 @@ class DigitalstromDevice:
         self.hw_info = ""
         self.oem_product_url = None
         self.manufacturer = "digitalSTROM"
-        self.zone_id = None
-        self.button_used = None
+        self.zone_id: int | None = None
+        self.button_used: bool | None = None
         self.button_group = 0
-        self.output_dimmable = None
-        self.sensors = {}
-        self.binary_inputs = {}
-        self.output_channels = {}
-        self.button = None
-        self.meter_dsuid = None
+        self.output_dimmable: bool | None = None
+        self.sensors: dict[int, DigitalstromSensorChannel] = {}
+        self.binary_inputs: dict[int, DigitalstromBinaryInputChannel] = {}
+        self.output_channels: dict[int, DigitalstromOutputChannel] = {}
+        self.button: DigitalstromButtonChannel | None = None
+        self.meter_dsuid: str | None = None
         self.dsuid_index = None
         self.oem_part_number = None
-        self.parent_device = None
+        self.parent_device: Self | None = None
         self.available = False
-        self.availability_callbacks = []
-        self.reading_power_state_unsupported = False
+        self.availability_callbacks: list[Callable] = []
+        self.reading_power_state_supported: bool | None = None
+        self.unique_device_names: list[str] = []
+        self.output_channel_log_count = 0
 
-    def availability_callback(self, available: bool, call_parent: bool = False) -> None:
+    def get_parent(self) -> Self:
+        if self.parent_device is not None and self.parent_device != self:
+            return self.parent_device.get_parent()
+        return self
+
+    def update_availability(self, available: bool) -> None:
+        parent = self.get_parent()
+        if parent != self:
+            parent.update_availability(available)
+            return
         if not self.available == available:
             self.available = available
-            if call_parent and (parent_device is not None):
-                parent_device.availability_callback(available)
             for callback in self.availability_callbacks:
                 callback(available)
+
+    def register_availability_callback(
+        self, callback: Callable[[bool], None]
+    ) -> Callable[[], None]:
+        if callback not in self.availability_callbacks:
+            self.availability_callbacks.append(callback)
+
+        def unregister_availability_callback() -> None:
+            if callback in self.availability_callbacks:
+                self.availability_callbacks.remove(callback)
+
+        return unregister_availability_callback
 
     def load_from_dict(self, data: dict) -> None:
         if (dsuid := data.get("dSUID")) and (dsuid == self.dsuid):
@@ -66,16 +100,51 @@ class DigitalstromDevice:
             f"device/setOutputChannelValue?dsuid={self.dsuid}&channelvalues={channel_values_str}&applyNow=1"
         )
 
-    async def get_power_state(self) -> int:
-        if self.reading_power_state_unsupported:
+    async def output_channels_get_values(
+        self, channels: list[str] | None = None
+    ) -> None:
+        channel_values = []
+        if channels is None:
+            channels = [x.channel_type for x in self.output_channels.values()]
+        for output_channel_type in channels:
+            if output_channel_type in SUPPORTED_OUTPUT_CHANNELS:
+                channel_values.append(output_channel_type)
+        channel_values_str = ";".join(channel_values)
+        result_channel_values = {}
+
+        result = await self.client.request(
+            f"device/getOutputChannelValue?dsuid={self.dsuid}&channels={channel_values_str}"
+        )
+        if self.output_channel_log_count < 100:
+            self.output_channel_log_count += 1
+            self.apartment.logger.debug(
+                f"device/getOutputChannelValue?dsuid={self.dsuid}&channels={channel_values_str} {result}"
+            )
+        if (result_channels := result.get("channels")) is not None:
+            for channel in result_channels:
+                channel_id = channel.get("channel")
+                channel_value = channel.get("value")
+                if channel_id is not None:
+                    result_channel_values[channel_id] = channel_value
+
+        for output_channel in self.output_channels.values():
+            if output_channel.channel_type in channels:
+                output_channel.last_value = result_channel_values.get(
+                    output_channel.channel_type, None
+                )
+
+    async def get_power_state(self) -> float | None:
+        if self.reading_power_state_supported == False:
             return None
         try:
             result = await self.client.request(
                 f"property/getFloating?path=/apartment/zones/zone{self.zone_id}/devices/{self.dsuid}/status/outputs/powerState/targetValue"
             )
+            self.reading_power_state_supported = True
             return result.get("value", None)
         except ServerError:
-            self.reading_power_state_unsupported = True
+            if self.reading_power_state_supported is None:
+                self.reading_power_state_supported = False
         return None
 
     async def call_scene(self, scene: int, force: bool = False) -> None:
@@ -84,17 +153,19 @@ class DigitalstromDevice:
             f"device/callScene?dsuid={self.dsuid}&sceneNumber={scene}{force_str}"
         )
 
-    async def undo_scene(self, scene: int, force: bool = False) -> None:
-        force_str = "&force=true" if force else ""
+    async def undo_scene(self, scene: int) -> None:
         await self.client.request(
-            f"device/undoScene?dsuid={self.dsuid}&sceneNumber={scene}{force_str}"
+            f"device/undoScene?dsuid={self.dsuid}&sceneNumber={scene}"
         )
 
     def _load_general(self, data: dict) -> None:
         if (dsid := data.get("id")) and (len(dsid) > 0):
             self.dsid = dsid
-        if (name := data.get("name")) and (len(name) > 0):
-            self.name = name
+        if (name := data.get("name")) is not None:
+            if len(name) > 0:
+                self.name = name
+            if len(self.unique_device_names) == 0:
+                self.unique_device_names.append(self.name)
         if (hw_info := data.get("hwInfo")) and (len(hw_info) > 0):
             self.hw_info = hw_info
 
@@ -164,13 +235,12 @@ class DigitalstromDevice:
 
     def _load_binary_inputs(self, data: dict) -> None:
         if binary_inputs := data.get("binaryInputs"):
-            inverted = False
-            # if (input_property := data.get("AKMInputProperty")) and (
-            #     input_property == "inverted"
-            # ):
-            #     inverted = True
-            if self.hw_info in INVERTED_BINARY_INPUTS:
+            inverted = data.get("AKMInputProperty") == "inverted"
+            invert_mode = INVERTED_BINARY_INPUTS.get(self.hw_info, "default")
+            if invert_mode == "always_invert":
                 inverted = True
+            elif invert_mode == "never_invert":
+                inverted = False
             for index in range(len(binary_inputs)):
                 input_dict = binary_inputs[index]
                 group = input_dict.get("targetGroup")
@@ -190,26 +260,18 @@ class DigitalstromDevice:
                     self.binary_inputs[index] = binary_input
 
     def _load_outputs(self, data: dict) -> None:
-        if output_mode := data.get("outputMode"):
-            if output_mode == 0:
-                self.output_dimmable = None
-            elif output_mode in NOT_DIMMABLE_OUTPUT_MODES:
-                self.output_dimmable = False
-            else:
-                self.output_dimmable = True
-        if (
-            (output_mode := data.get("outputMode"))
-            and output_mode > 0
-            and (output_channels := data.get("outputChannels"))
-            and len(output_channels) > 0
-        ):
-            for output_channel in output_channels:
-                index = output_channel["channelIndex"]
-                channel_id = output_channel["channelId"]
-                channel_name = output_channel["channelName"]
-                channel_type = output_channel["channelType"]
-                from .channel import DigitalstromOutputChannel
+        output_mode = data.get("outputMode")
+        if output_mode is not None:
+            self.output_dimmable = output_mode not in NOT_DIMMABLE_OUTPUT_MODES
+            if output_mode > 0 and (output_channels := data.get("outputChannels")):
+                for output_channel in output_channels:
+                    index = output_channel["channelIndex"]
+                    if index not in self.output_channels.keys():
+                        channel_id = output_channel["channelId"]
+                        channel_name = output_channel["channelName"]
+                        channel_type = output_channel["channelType"]
+                        from .channel import DigitalstromOutputChannel
 
-                self.output_channels[index] = DigitalstromOutputChannel(
-                    self, index, channel_id, channel_name, channel_type
-                )
+                        self.output_channels[index] = DigitalstromOutputChannel(
+                            self, index, channel_id, channel_name, channel_type
+                        )

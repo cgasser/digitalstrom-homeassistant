@@ -28,11 +28,15 @@ APARTMENT_SCENES: list = [
 
 class DigitalstromApartment:
     def __init__(self, client: DigitalstromClient, system_dsuid: str):
+        from .circuit import DigitalstromCircuit
+        from .device import DigitalstromDevice
+        from .zone import DigitalstromZone
+
         self.client = client
         self.dsuid = system_dsuid
-        self.devices = {}
-        self.circuits = {}
-        self.zones = {}
+        self.devices: dict[str, DigitalstromDevice] = {}
+        self.circuits: dict[str, DigitalstromCircuit] = {}
+        self.zones: dict[int, DigitalstromZone] = {}
         self.scenes = []
         self.logger = logging.getLogger("digitalstrom_api")
         client.register_event_callback(self.event_callback)
@@ -50,9 +54,8 @@ class DigitalstromApartment:
         force_str = "&force=true" if force else ""
         await self.client.request(f"apartment/callScene?sceneNumber={scene}{force_str}")
 
-    async def undo_scene(self, scene: int, force: bool = False) -> None:
-        force_str = "&force=true" if force else ""
-        await self.client.request(f"apartment/undoScene?sceneNumber={scene}{force_str}")
+    async def undo_scene(self, scene: int) -> None:
+        await self.client.request(f"apartment/undoScene?sceneNumber={scene}")
 
     def find_split_devices(self) -> None:
         devices = sorted(self.devices.values(), key=lambda x: int(x.dsuid, 16))
@@ -73,11 +76,17 @@ class DigitalstromApartment:
                     prev if prev.parent_device is None else prev.parent_device
                 )
                 curr.parent_device = parent_device
+                if curr.name not in parent_device.unique_device_names:
+                    parent_device.unique_device_names.append(curr.name)
                 self.logger.debug(f"Merging devices {parent_device.dsuid} {curr.dsuid}")
+                if parent_device.available != curr.available:
+                    self.logger.debug(
+                        f"Merged devices have different availability: {parent_device.available} {curr.available}"
+                    )
 
     async def get_devices(self) -> dict:
         data = await self.client.request("apartment/getDevices")
-        self.logger.debug(f"get_devices {data}")
+        self.logger.debug(f"getDevices {data}")
         for d in data:
             if (dsuid := d.get("dSUID")) and (len(dsuid) > 0):
                 if dsuid not in self.devices.keys():
@@ -91,6 +100,7 @@ class DigitalstromApartment:
 
     async def get_circuits(self) -> dict:
         data = await self.client.request("apartment/getCircuits")
+        self.logger.debug(f"getCircuits {data}")
         if circuits := data.get("circuits"):
             for d in circuits:
                 if (dsuid := d.get("dSUID")) and (len(dsuid) > 0):
@@ -104,6 +114,7 @@ class DigitalstromApartment:
 
     async def get_zones(self) -> dict:
         data = await self.client.request("apartment/getReachableGroups")
+        self.logger.debug(f"getReachableGroups {data}")
         if zones := data.get("zones"):
             for z in zones:
                 if "zoneID" in z:
@@ -134,42 +145,46 @@ class DigitalstromApartment:
             if name == "deviceSensorValue":
                 dsuid = data["source"]["dsid"]
                 index = int(data["properties"]["sensorIndex"])
-                # sensor_type = int(data["properties"]["sensorType"])
-                # raw_value = int(data["properties"]["sensorValue"])  # "sensorValue" is not always present
                 value = float(data["properties"]["sensorValueFloat"])
-                if sensor := self.devices.get(dsuid).sensors.get(index):
+                if (device := self.devices.get(dsuid)) and (
+                    sensor := device.sensors.get(index)
+                ):
                     sensor.update(value)
+                    device.update_availability(True)
+
             elif name == "deviceBinaryInputEvent":
                 dsuid = data["source"]["dsid"]
                 index = int(data["properties"]["inputIndex"])
                 raw_state = int(data["properties"]["inputState"])
                 state = raw_state > 0
-                # input_type = int(data["properties"]["inputType"])
-                # print(f"Binary input event: {dsuid}.{index} {state}, Raw: {raw_state}")
-                if binary_sensor := self.devices.get(dsuid).binary_inputs.get(index):
+                if (device := self.devices.get(dsuid)) and (
+                    binary_sensor := device.binary_inputs.get(index)
+                ):
                     binary_sensor.update(state, raw_state)
+                    device.update_availability(True)
+
             elif name == "stateChange":
                 state = data["properties"]["state"]
                 if (dsuid := data["source"].get("dSUID")) and (
                     device := self.devices.get(dsuid)
                 ):
                     if state == "unknown":
-                        device.availability_callback(False, call_parent=True)
+                        device.update_availability(False)
+                        # TODO: clear output channels last_value
                     else:
-                        device.availability_callback(True)
-                # raw_value = data["properties"]["value"]
-                # statename = data["properties"]["statename"]
+                        device.update_availability(True)
 
-                # if binary_input := self.devices.get(dsuid).binary_inputs.get(index):
-                #    value = int(raw_value) == 1
-                #    binary_input.update(value, raw_value)
             elif name == "DeviceEvent":
                 if (
-                    (data["properties"]["action"] == "ready")
+                    (action := data["properties"]["action"])
                     and (dsuid := data["source"].get("dsid"))
                     and (device := self.devices.get(dsuid))
                 ):
-                    device.availability_callback(True)
+                    if action == "ready":
+                        device.update_availability(True)
+                    if action == "removed":
+                        device.update_availability(False)
+                        # TODO: clear output channels
 
             elif name in ["callScene", "callSceneBus"]:
                 dsuid = data["properties"].get(
@@ -189,6 +204,7 @@ class DigitalstromApartment:
                         extra_data = {}
                         extra_data["scene_id"] = scene_id
                         device.button.update("call_device_scene", extra_data)
+                        device.update_availability(True)
                     if (
                         (data["source"]["isGroup"])
                         and (group_id := data["source"].get("groupID"))
@@ -199,6 +215,18 @@ class DigitalstromApartment:
                         extra_data["group_id"] = group_id
                         extra_data["zone_id"] = zone_id
                         device.button.update("call_group_scene", extra_data)
+                        device.update_availability(True)
+
+            if name in ["callScene", "undoScene"]:
+                scene_id = int(data["properties"].get("sceneID", None))
+                if scene_id >= 64:
+                    for scene in self.scenes:
+                        if (
+                            scene_id in [scene.call_number, scene.undo_number]
+                            and scene.state_name is not None
+                        ):
+                            scene.force_update = True
+
             elif name == "buttonClick":
                 dsuid = data["source"]["dsid"]
                 button_index = int(data["properties"]["buttonIndex"])
@@ -213,12 +241,13 @@ class DigitalstromApartment:
                         data["properties"].get("holdCount", 0)
                     )
                     device.button.update("button", extra_data)
-            elif name == "apartmentProxyDeviceTimeout":
-                if (dsuid := data["source"].get("dsid")) and (
-                    device := self.devices.get(dsuid)
-                ):
-                    for channel in device.output_channels.values():
-                        channel.update("timeout")
-            elif name == "apartmentProxyStateChanged":
-                # TODO: Update all output channels
-                pass
+                    device.update_availability(True)
+
+            # elif name == "apartmentProxyDeviceTimeout": # Cover reached end position
+            #     if (dsuid := data["source"].get("dsid")) and (
+            #         device := self.devices.get(dsuid)
+            #     ):
+            #         await device.output_channels_get_values() # TODO
+            # elif name == "apartmentProxyStateChanged":
+            #     # TODO: Update all output channels
+            #     pass

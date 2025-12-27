@@ -1,11 +1,14 @@
 from .apartment import DigitalstromApartment
 from .client import DigitalstromClient
+from .exceptions import ServerError
 
 
 class DigitalstromCircuit:
     def __init__(
         self, client: DigitalstromClient, apartment: DigitalstromApartment, dsuid: str
     ):
+        from .channel import DigitalstromMeterSensorChannel
+
         self.client = client
         self.dsuid = dsuid
         self.apartment = apartment
@@ -19,7 +22,7 @@ class DigitalstromCircuit:
         self.has_metering = False
         self.has_metering_producer = False
         self.has_blinking = False
-        self.sensors = {}
+        self.sensors: dict[str, DigitalstromMeterSensorChannel] = {}
 
     def load_from_dict(self, data: dict) -> None:
         if (dsuid := data.get("dSUID")) and (dsuid == self.dsuid):
@@ -52,3 +55,22 @@ class DigitalstromCircuit:
                     self.sensors[identifier] = DigitalstromMeterSensorChannel(
                         self, identifier
                     )
+
+    async def update_available(self) -> str | None:
+        try:
+            data = await self.client.request(
+                f"circuit/firmwareCheck?dsuid={self.dsuid}"
+            )
+            status = data.get("status")
+            # if status not in ["ok", "error", "update"]:
+            #    status = None
+            return status
+        except ServerError:
+            return None
+
+    async def install_update(self) -> None:
+        status = await self.update_available()
+        if status == "update":
+            data = await self.client.request(
+                f"circuit/firmwareUpdate?dsuid={self.dsuid}&clearsettings=false"
+            )

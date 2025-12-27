@@ -13,13 +13,462 @@
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
-      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_auth": "Invalid username or password",
       "invalid_certificate": "Server certificate validation failed",
       "invalid_fingerprint": "Invalid fingerprint length",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+    }
+  },
+  "exceptions": {
+    "config_entry_error_multiple_entries_for_dsuid": {
+      "message": "Multiple config entries for the same dSS found. Please delete all entries except this one and restart Home Assistant. (DSUID={dsuid})"
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "unknown_binary_input": {
+        "name": "Unknown binary input (type {sensor_type}){name}"
+      },
+      "binary_input": {
+        "name": "Binary input{name}"
+      },
+      "presence": {
+        "name": "Presence{name}"
+      },
+      "brightness": {
+        "name": "Brightness{name}"
+      },
+      "presence_in_darkness": {
+        "name": "Presence in darkness{name}"
+      },
+      "twilight": {
+        "name": "Twilight{name}"
+      },
+      "motion": {
+        "name": "Motion{name}"
+      },
+      "motion_in_darkness": {
+        "name": "Motion in darkness{name}"
+      },
+      "smoke": {
+        "name": "Smoke{name}"
+      },
+      "wind_strength_above_limit": {
+        "name": "Wind strength above limit{name}"
+      },
+      "rain": {
+        "name": "Rain{name}"
+      },
+      "sun": {
+        "name": "Sun{name}"
+      },
+      "temperature_below_limit": {
+        "name": "Temperature below limit{name}"
+      },
+      "battery": {
+        "name": "Battery{name}"
+      },
+      "window": {
+        "name": "Window{name}"
+      },
+      "door": {
+        "name": "Door{name}"
+      },
+      "window_tilt": {
+        "name": "Window tilt{name}"
+      },
+      "garage_door": {
+        "name": "Garage door{name}"
+      },
+      "sun_protection": {
+        "name": "Sun protection{name}"
+      },
+      "frost": {
+        "name": "Frost{name}"
+      },
+      "heating_system": {
+        "name": "Heating system{name}"
+      },
+      "warm_water": {
+        "name": "Warm water{name}"
+      },
+      "initialization": {
+        "name": "Initialization{name}"
+      },
+      "malfunction": {
+        "name": "Malfunction{name}"
+      },
+      "service_required": {
+        "name": "Service required{name}"
+      }
+    },
+    "climate": {
+      "zone_climate": {
+        "name": "Climate",
+        "state": {
+          "off": "Off",
+          "heat": "Heat",
+          "cool": "Cool"
+        },
+        "state_attributes": {
+          "current_temperature": {
+            "name": "Current temperature"
+          },
+          "hvac_action": {
+            "state": {
+              "off": "Off",
+              "idle": "Idle",
+              "cooling": "Cooling",
+              "heating": "Heating"
+            }
+          },
+          "preset_mode": {
+            "state": {
+              "off": "Off",
+              "comfort": "Comfort",
+              "eco": "Eco",
+              "away": "Away",
+              "sleep": "Night",
+              "holiday": "Holiday",
+              "passive_cooling": "Passive Cooling",
+              "passive_cooling_off": "Passive Cooling off"
+            }
+          }
+        }
+      }
+    },
+    "event": {
+      "button_event_unknown": {
+        "name": "Button (group {group}){name}"
+      },
+      "button_event_light": {
+        "name": "Button (Light){name}"
+      },
+      "button_event_cover": {
+        "name": "Button (Cover){name}"
+      },
+      "button_event_heating": {
+        "name": "Button (Heating){name}"
+      },
+      "button_event_audio": {
+        "name": "Button (Audio){name}"
+      },
+      "button_event_video": {
+        "name": "Button (Video){name}"
+      },
+      "button_event_security": {
+        "name": "Button (Security){name}"
+      },
+      "button_event_access": {
+        "name": "Button (Access){name}"
+      },
+      "button_event_joker": {
+        "name": "Button (Joker){name}"
+      },
+      "button_event_cooling": {
+        "name": "Button (Cooling){name}"
+      },
+      "button_event_ventilation": {
+        "name": "Button (Ventilation){name}"
+      },
+      "button_event_window": {
+        "name": "Button (Window){name}"
+      },
+      "button_event_recirculation": {
+        "name": "Button (Recirculation){name}"
+      },
+      "button_event_awnings": {
+        "name": "Button (Awnings){name}"
+      },
+      "button_event_temperature_control": {
+        "name": "Button (Temperature Control){name}"
+      }
+    },
+    "scene": {
+      "zone_scene_unknown": {
+        "name": "Group {group}: scene {scene}"
+      },
+      "zone_scene_unknown_named": {
+        "name": "Group {group}: {name}"
+      },
+      "zone_scene_light": {
+        "name": "Light: scene {scene}"
+      },
+      "zone_scene_light_named": {
+        "name": "Light: {name}"
+      },
+      "zone_scene_light_off": {
+        "name": "Light: off"
+      },
+      "zone_scene_light_preset": {
+        "name": "Light: preset {preset}"
+      },
+      "zone_scene_cover": {
+        "name": "Cover: scene {scene}"
+      },
+      "zone_scene_cover_named": {
+        "name": "Cover: {name}"
+      },
+      "zone_scene_cover_off": {
+        "name": "Cover: off"
+      },
+      "zone_scene_cover_preset": {
+        "name": "Cover: preset {preset}"
+      },
+      "zone_scene_heating": {
+        "name": "Heating: scene {scene}"
+      },
+      "zone_scene_heating_named": {
+        "name": "Heating: {name}"
+      },
+      "zone_scene_audio": {
+        "name": "Audio: scene {scene}"
+      },
+      "zone_scene_audio_named": {
+        "name": "Audio: {name}"
+      },
+      "zone_scene_audio_off": {
+        "name": "Audio: off"
+      },
+      "zone_scene_audio_preset": {
+        "name": "Audio: preset {preset}"
+      },
+      "zone_scene_video": {
+        "name": "Video: scene {scene}"
+      },
+      "zone_scene_video_named": {
+        "name": "Video: {name}"
+      },
+      "zone_scene_video_off": {
+        "name": "Video: off"
+      },
+      "zone_scene_video_preset": {
+        "name": "Video: preset {preset}"
+      },
+      "zone_scene_security": {
+        "name": "Security: scene {scene}"
+      },
+      "zone_scene_security_named": {
+        "name": "Security: {name}"
+      },
+      "zone_scene_access": {
+        "name": "Access: scene {scene}"
+      },
+      "zone_scene_access_named": {
+        "name": "Access: {name}"
+      },
+      "zone_scene_joker": {
+        "name": "Joker: scene {scene}"
+      },
+      "zone_scene_joker_named": {
+        "name": "Joker: {name}"
+      },
+      "zone_scene_cooling": {
+        "name": "Cooling: scene {scene}"
+      },
+      "zone_scene_cooling_named": {
+        "name": "Cooling: {name}"
+      },
+      "zone_scene_ventilation": {
+        "name": "Ventilation: scene {scene}"
+      },
+      "zone_scene_ventilation_named": {
+        "name": "Ventilation: {name}"
+      },
+      "zone_scene_window": {
+        "name": "Window: scene {scene}"
+      },
+      "zone_scene_window_named": {
+        "name": "Window: {name}"
+      },
+      "zone_scene_recirculation": {
+        "name": "Recirculation: scene {scene}"
+      },
+      "zone_scene_recirculation_named": {
+        "name": "Recirculation: {name}"
+      },
+      "zone_scene_awnings": {
+        "name": "Awnings: scene {scene}"
+      },
+      "zone_scene_awnings_named": {
+        "name": "Awnings: {name}"
+      },
+      "zone_scene_temperature_control": {
+        "name": "Temperature Control: scene {scene}"
+      },
+      "zone_scene_temperature_control_named": {
+        "name": "Temperature Control: {name}"
+      }
+    },
+    "sensor": {
+      "unknown_sensor": {
+        "name": "Unknown sensor (type {sensor_type})"
+      },
+      "active_power": {
+        "name": "Active Power"
+      },
+      "output_current": {
+        "name": "Output Current"
+      },
+      "energy": {
+        "name": "Energy"
+      },
+      "room_temperature": {
+        "name": "Room Temperature"
+      },
+      "outdoor_temperature": {
+        "name": "Outdoor Temperature"
+      },
+      "room_brightness": {
+        "name": "Room Brightness"
+      },
+      "outdoor_brightness": {
+        "name": "Outdoor Brightness"
+      },
+      "room_relative_humidity": {
+        "name": "Room Relative Humidity"
+      },
+      "outdoor_relative_humidity": {
+        "name": "Outdoor Relative Humidity"
+      },
+      "air_pressure": {
+        "name": "Air pressure"
+      },
+      "wind_gust_speed": {
+        "name": "Wind gust speed"
+      },
+      "wind_gust_direction": {
+        "name": "Wind gust direction"
+      },
+      "wind_speed_average": {
+        "name": "Wind speed average"
+      },
+      "wind_direction": {
+        "name": "Wind direction"
+      },
+      "precipitation_intensity_of_last_hour": {
+        "name": "Precipitation intensity of last hour"
+      },
+      "room_carbon_dioxide_concentration": {
+        "name": "Room Carbon Dioxide Concentration"
+      },
+      "room_carbon_monoxide_concentration": {
+        "name": "Room Carbon Monoxide Concentration"
+      },
+      "sound_pressure_level": {
+        "name": "Sound Pressure Level"
+      },
+      "room_temperature_set_point": {
+        "name": "Room Temperature Set Point"
+      },
+      "room_temperature_control_variable": {
+        "name": "Room Temperature Control Variable"
+      },
+      "apparent_power": {
+        "name": "Apparent Power"
+      },
+      "temperature": {
+        "name": "Temperature"
+      },
+      "brightness": {
+        "name": "Brightness"
+      },
+      "relative_humidity": {
+        "name": "Relative Humidity"
+      },
+      "generated_active_power": {
+        "name": "Generated Active Power"
+      },
+      "generated_energy": {
+        "name": "Generated Energy"
+      },
+      "water_quantity": {
+        "name": "Water Quantity"
+      },
+      "water_flow_rate": {
+        "name": "Water Flow Rate"
+      },
+      "length": {
+        "name": "Length"
+      },
+      "mass": {
+        "name": "Mass"
+      },
+      "time": {
+        "name": "Time"
+      },
+      "sun_azimuth": {
+        "name": "Sun azimuth"
+      },
+      "sun_elevation": {
+        "name": "Sun elevation"
+      },
+      "meter_power": {
+        "name": "Power"
+      },
+      "meter_energy": {
+        "name": "Energy"
+      }
+    },
+    "switch": {
+      "auto_standby": {
+        "name": "Auto Standby"
+      },
+      "standby": {
+        "name": "Standby"
+      },
+      "deep_off": {
+        "name": "Deep Off"
+      },
+      "zone_active": {
+        "name": "Zone Active"
+      },
+      "sleeping": {
+        "name": "Sleeping"
+      },
+      "absent": {
+        "name": "Absent"
+      },
+      "door_bell": {
+        "name": "Door Bell"
+      },
+      "burglary": {
+        "name": "Burglary"
+      },
+      "panic": {
+        "name": "Panic"
+      },
+      "fire": {
+        "name": "Fire"
+      },
+      "alarm_1": {
+        "name": "Alarm 1"
+      },
+      "alarm_2": {
+        "name": "Alarm 2"
+      },
+      "alarm_3": {
+        "name": "Alarm 3"
+      },
+      "alarm_4": {
+        "name": "Alarm 4"
+      },
+      "wind": {
+        "name": "Wind"
+      },
+      "rain": {
+        "name": "Rain"
+      },
+      "hail": {
+        "name": "Hail"
+      },
+      "pollution": {
+        "name": "Pollution"
+      }
     }
   }
 }

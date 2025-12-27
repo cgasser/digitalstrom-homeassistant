@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -28,11 +29,11 @@ from homeassistant.const import (
     UnitOfVolumetricFlux,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .api.channel import DigitalstromMeterSensorChannel, DigitalstromModbusMeterChannel, DigitalstromSensorChannel
-from .const import CONF_DSUID, DOMAIN
+from .const import DOMAIN
 from .entity import DigitalstromEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,10 +44,12 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     -1: SensorEntityDescription(
         key="unknown",
         name="Unknown sensor",
+        translation_key="unknown_sensor",
     ),
     4: SensorEntityDescription(
         key="4",
         name="Active Power",
+        translation_key="active_power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -54,6 +57,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     5: SensorEntityDescription(
         key="5",
         name="Output Current",
+        translation_key="output_current",
         native_unit_of_measurement=UnitOfElectricCurrent.MILLIAMPERE,
         device_class=SensorDeviceClass.CURRENT,
         state_class=SensorStateClass.MEASUREMENT,
@@ -61,6 +65,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     6: SensorEntityDescription(
         key="6",
         name="Energy",
+        translation_key="energy",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -68,6 +73,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     9: SensorEntityDescription(
         key="9",
         name="Room Temperature",
+        translation_key="room_temperature",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -75,6 +81,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     10: SensorEntityDescription(
         key="10",
         name="Outdoor Temperature",
+        translation_key="outdoor_temperature",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -82,6 +89,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     11: SensorEntityDescription(
         key="11",
         name="Room Brightness",
+        translation_key="room_brightness",
         native_unit_of_measurement=LIGHT_LUX,
         device_class=SensorDeviceClass.ILLUMINANCE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -89,6 +97,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     12: SensorEntityDescription(
         key="12",
         name="Outdoor Brightness",
+        translation_key="outdoor_brightness",
         native_unit_of_measurement=LIGHT_LUX,
         device_class=SensorDeviceClass.ILLUMINANCE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -96,6 +105,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     13: SensorEntityDescription(
         key="13",
         name="Room Relative Humidity",
+        translation_key="room_relative_humidity",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
@@ -103,6 +113,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     14: SensorEntityDescription(
         key="14",
         name="Outdoor Relative Humidity",
+        translation_key="outdoor_relative_humidity",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
@@ -110,6 +121,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     15: SensorEntityDescription(
         key="15",
         name="Air pressure",
+        translation_key="air_pressure",
         native_unit_of_measurement=UnitOfPressure.HPA,
         device_class=SensorDeviceClass.ATMOSPHERIC_PRESSURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -117,6 +129,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     16: SensorEntityDescription(
         key="16",
         name="Wind gust speed",
+        translation_key="wind_gust_speed",
         native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
@@ -124,12 +137,14 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     17: SensorEntityDescription(
         key="17",
         name="Wind gust direction",
+        translation_key="wind_gust_direction",
         native_unit_of_measurement=DEGREE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     18: SensorEntityDescription(
         key="18",
         name="Wind speed average",
+        translation_key="wind_speed_average",
         native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
@@ -137,12 +152,14 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     19: SensorEntityDescription(
         key="19",
         name="Wind direction",
+        translation_key="wind_direction",
         native_unit_of_measurement=DEGREE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     20: SensorEntityDescription(
         key="20",
         name="Precipitation intensity of last hour",
+        translation_key="precipitation_intensity_of_last_hour",
         native_unit_of_measurement=UnitOfVolumetricFlux.MILLIMETERS_PER_HOUR,
         device_class=SensorDeviceClass.PRECIPITATION_INTENSITY,
         state_class=SensorStateClass.MEASUREMENT,
@@ -150,6 +167,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     21: SensorEntityDescription(
         key="21",
         name="Room Carbon Dioxide Concentration",
+        translation_key="room_carbon_dioxide_concentration",
         native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
         device_class=SensorDeviceClass.CO2,
         state_class=SensorStateClass.MEASUREMENT,
@@ -157,6 +175,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     22: SensorEntityDescription(
         key="22",
         name="Room Carbon Monoxide Concentration",
+        translation_key="room_carbon_monoxide_concentration",
         native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
         device_class=SensorDeviceClass.CO,
         state_class=SensorStateClass.MEASUREMENT,
@@ -164,6 +183,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     25: SensorEntityDescription(
         key="25",
         name="Sound Pressure Level",
+        translation_key="sound_pressure_level",
         native_unit_of_measurement=UnitOfSoundPressure.DECIBEL,
         device_class=SensorDeviceClass.SOUND_PRESSURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -171,6 +191,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     50: SensorEntityDescription(
         key="50",
         name="Room Temperature Set Point",
+        translation_key="room_temperature_set_point",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -178,12 +199,14 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     51: SensorEntityDescription(
         key="51",
         name="Room Temperature Control Variable",
+        translation_key="room_temperature_control_variable",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     64: SensorEntityDescription(
         key="64",
         name="Output Current",
+        translation_key="output_current",
         native_unit_of_measurement=UnitOfElectricCurrent.MILLIAMPERE,
         device_class=SensorDeviceClass.CURRENT,
         state_class=SensorStateClass.MEASUREMENT,
@@ -191,6 +214,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     65: SensorEntityDescription(
         key="65",
         name="Apparent Power",
+        translation_key="apparent_power",
         native_unit_of_measurement=UnitOfApparentPower.VOLT_AMPERE,
         device_class=SensorDeviceClass.APPARENT_POWER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -198,6 +222,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     66: SensorEntityDescription(
         key="66",
         name="Temperature",
+        translation_key="temperature",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -205,6 +230,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     67: SensorEntityDescription(
         key="67",
         name="Brightness",
+        translation_key="brightness",
         native_unit_of_measurement=LIGHT_LUX,
         device_class=SensorDeviceClass.ILLUMINANCE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -212,6 +238,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     68: SensorEntityDescription(
         key="68",
         name="Relative Humidity",
+        translation_key="relative_humidity",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
@@ -219,6 +246,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     69: SensorEntityDescription(
         key="69",
         name="Generated Active Power",
+        translation_key="generated_active_power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -226,6 +254,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     70: SensorEntityDescription(
         key="70",
         name="Generated Energy",
+        translation_key="generated_energy",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -233,6 +262,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     71: SensorEntityDescription(
         key="71",
         name="Water Quantity",
+        translation_key="water_quantity",
         native_unit_of_measurement=UnitOfVolume.LITERS,
         device_class=SensorDeviceClass.WATER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -240,6 +270,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     72: SensorEntityDescription(
         key="72",
         name="Water Flow Rate",
+        translation_key="water_flow_rate",
         # Conversion from "L/s" to CUBIC_METERS_PER_HOUR: (value * 3.6)
         native_unit_of_measurement=UnitOfVolumeFlowRate.CUBIC_METERS_PER_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
@@ -247,6 +278,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     73: SensorEntityDescription(
         key="73",
         name="Length",
+        translation_key="length",
         native_unit_of_measurement=UnitOfLength.METERS,
         device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -254,6 +286,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     74: SensorEntityDescription(
         key="74",
         name="Mass",
+        translation_key="mass",
         native_unit_of_measurement=UnitOfMass.GRAMS,
         device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
@@ -261,6 +294,7 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     75: SensorEntityDescription(
         key="75",
         name="Time",
+        translation_key="time",
         native_unit_of_measurement=UnitOfTime.SECONDS,
         device_class=SensorDeviceClass.DURATION,
         state_class=SensorStateClass.MEASUREMENT,
@@ -268,12 +302,14 @@ SENSORS_MAP: dict[int, SensorEntityDescription] = {
     76: SensorEntityDescription(
         key="76",
         name="Sun azimuth",
+        translation_key="sun_azimuth",
         native_unit_of_measurement=DEGREE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     77: SensorEntityDescription(
         key="77",
         name="Sun elevation",
+        translation_key="sun_elevation",
         native_unit_of_measurement=DEGREE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -286,7 +322,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform."""
-    apartment = hass.data[DOMAIN][config_entry.data[CONF_DSUID]]["apartment"]
+    apartment = hass.data[DOMAIN][config_entry.unique_id]["apartment"]
     circuit_sensors = []
     for circuit in apartment.circuits.values():
         for sensor in circuit.sensors.values():
@@ -375,10 +411,9 @@ class DigitalstromSensor(SensorEntity, DigitalstromEntity):
     def __init__(self, sensor_channel: DigitalstromSensorChannel):
         super().__init__(sensor_channel.device, f"S{sensor_channel.index}")
         self._attributes: dict[str, Any] = {}
-        self._state: int | None = None
+        self._state: float | None = None
         self.channel = sensor_channel
         self.index = sensor_channel.index
-        self.valid = False
         self.set_type(sensor_channel.sensor_type)
         self._attr_suggested_display_precision = 1
         self.entity_id = f"{DOMAIN}.{self.device.dsuid}_{self.index}"
@@ -386,10 +421,10 @@ class DigitalstromSensor(SensorEntity, DigitalstromEntity):
     def set_type(self, sensor_type: int) -> None:
         self.sensor_type = sensor_type
         self.entity_description = SENSORS_MAP.get(sensor_type, SENSORS_MAP[-1])
-        self._attr_name = self.entity_description.name
+        self._attr_translation_key = self.entity_description.translation_key
         self._attr_has_entity_name = True
         if self.entity_description.key == "unknown":
-            self._attr_name += f" (type {sensor_type})"
+            self._attr_translation_placeholders = {"sensor_type": str(sensor_type)}
             self._attr_entity_registry_enabled_default = False
         self._attr_native_unit_of_measurement = (
             self.entity_description.native_unit_of_measurement
@@ -398,12 +433,17 @@ class DigitalstromSensor(SensorEntity, DigitalstromEntity):
         self._attr_state_class = self.entity_description.state_class
 
     async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
         self.update_callback(self.channel.last_value)
         self.async_on_remove(
             self.channel.register_update_callback(self.update_callback)
         )
 
-    def update_callback(self, state: float, raw_state: float = None) -> None:
+    def update_callback(
+        self, state: float | None, raw_state: float | None = None
+    ) -> None:
+        if not self.enabled:
+            return
         if state is None:
             return
         if self.entity_description.key == "72":
@@ -417,7 +457,7 @@ class DigitalstromSensor(SensorEntity, DigitalstromEntity):
         pass
 
     @property
-    def native_value(self) -> str:
+    def native_value(self) -> float | None:
         """Return the state of the sensor."""
         return self._state
 
@@ -425,26 +465,25 @@ class DigitalstromSensor(SensorEntity, DigitalstromEntity):
 class DigitalstromMeterSensor(SensorEntity):
     def __init__(self, sensor_channel: DigitalstromMeterSensorChannel):
         self.channel = sensor_channel
-        self.circuit = sensor_channel.device
+        self.circuit = sensor_channel.circuit
         self._attr_unique_id: str = f"{self.circuit.dsuid}_{self.channel.index}"
         self.entity_id = f"{DOMAIN}.{self._attr_unique_id}"
         self._attr_should_poll = True
         self._has_state = False
         self._attributes: dict[str, Any] = {}
-        self._state: int | None = None
-        self.valid = False
+        self._state: float | None = None
         self.entity_id = f"{DOMAIN}.{self.circuit.dsuid}_{self.channel.index}"
         self._state = None
         self._attr_has_entity_name = True
 
         if self.channel.index == "power":
-            self._attr_name = "Power"
+            self._attr_translation_key = "meter_power"
             self._attr_native_unit_of_measurement = UnitOfPower.WATT
             self._attr_device_class = SensorDeviceClass.POWER
             self._attr_state_class = SensorStateClass.MEASUREMENT
             self._attr_suggested_display_precision = 0
         elif self.channel.index == "energy":
-            self._attr_name = "Energy"
+            self._attr_translation_key = "meter_energy"
             self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
             self._attr_device_class = SensorDeviceClass.ENERGY
             self._attr_state_class = SensorStateClass.TOTAL_INCREASING
@@ -467,15 +506,16 @@ class DigitalstromMeterSensor(SensorEntity):
         return self.circuit.available
 
     @property
-    def native_value(self) -> str:
+    def native_value(self) -> float | None:
         """Return the state of the sensor."""
         return self._state
 
-    async def async_update(self, **kwargs) -> None:
-        if self.channel.index == "energy":
-            self._state = await self.channel.get_value() / 3600000
+    async def async_update(self, **kwargs: Any) -> None:
+        value = await self.channel.get_value()
+        if self.channel.index == "energy" and value is not None:
+            self._state = value / 3600000
         else:
-            self._state = await self.channel.get_value()
+            self._state = value
 
 
 class DigitalstromModbusMeterSensor(SensorEntity):
@@ -486,7 +526,7 @@ class DigitalstromModbusMeterSensor(SensorEntity):
         self._attr_should_poll = True
         self._state = None
         self._attr_has_entity_name = True
-        
+
         if channel.meter_type == "power":
             self._attr_name = "Power"
             self._attr_native_unit_of_measurement = UnitOfPower.WATT
@@ -526,23 +566,23 @@ class DigitalstromModbusMeterSensor(SensorEntity):
         slave_address = device_info.get("slave_address", "unknown")
         application = device_info.get("application", "none")
         is_global = device_info.get("is_global", False)
-        
+
         # Create unique device identifier
         device_id = f"modbus_{serial_number}_{slave_address}"
-        
+
         # Create meaningful device name
         if application != "none":
             device_name = f"Modbus Meter ({application.title()})"
         else:
             device_name = f"Modbus Meter"
-            
+
         if is_global:
             device_name += " - Global"
         else:
             device_name += f" - Local {slave_address}"
-            
+
         device_name += f" SN:{serial_number}"
-        
+
         return DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=device_name,

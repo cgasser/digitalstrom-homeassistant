@@ -5,6 +5,8 @@ import re
 import socket
 import time
 import urllib.parse
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import aiohttp
 
@@ -24,7 +26,7 @@ class DigitalstromClient:
         host: str,
         port: int,
         ssl: str | bool | None = None,
-        loop: asyncio.AbstractEventLoop = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ):
         # ssl:
         #  False -> Ignore server certificate
@@ -32,14 +34,14 @@ class DigitalstromClient:
         #  str -> Verify server certificate using fingerprint
         self.host = host
         self.port = port
-        self.ssl = None
-        self.last_request = None
-        self.last_event = None
+        self.ssl: str | bool | aiohttp.Fingerprint | None = None
         self._loop = loop
-        self._app_token = None
-        self._session_token = None
-        self._ws = None
-        self._event_callbacks = []
+        self.last_request: float | None = None
+        self.last_event: float | None = None
+        self._app_token: str | None = None
+        self._session_token: str | None = None
+        self._ws: aiohttp.ClientSession | None = None
+        self._event_callbacks: list[Callable[[dict], Awaitable[None]]] = []
         if type(ssl) is bool:
             self.ssl = None if ssl else False
         elif type(ssl) is str:
@@ -50,7 +52,9 @@ class DigitalstromClient:
                 )
             self.ssl = aiohttp.Fingerprint(binascii.unhexlify(ssl_clean))
 
-    async def _request_raw(self, url: str, cookies: dict = None) -> dict:
+    async def _request_raw(self, url: str, cookies: dict | None = None) -> dict:
+        if type(self.ssl) is not bool and type(self.ssl) is not aiohttp.Fingerprint:
+            raise InvalidFingerprint()
         async with aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(family=socket.AF_INET, ssl=self.ssl),
             cookies=cookies,
@@ -71,6 +75,8 @@ class DigitalstromClient:
                     if (is_ok := data.get("ok")) and is_ok:
                         if result := data.get("result"):
                             return result
+                        elif status := data.get("status"):
+                            return {"status": status}
                         return {}
                     elif message := data.get("message"):
                         if (
@@ -89,15 +95,15 @@ class DigitalstromClient:
             except aiohttp.ClientError as e:
                 raise CannotConnect(e) from None
 
-    async def _request_session_token(self) -> str:
+    async def request_session_token(self) -> str:
         data = await self._request_raw(
             f"system/loginApplication?loginToken={self._app_token}"
         )
-        return data["token"]
+        return str(data["token"])
 
     async def request_app_token(
         self, username: str, password: str, application_name: str = "Home Assistant"
-    ) -> str:
+    ) -> str | None:
         # Register a new app token
         username_safe = urllib.parse.quote(username)
         password_safe = urllib.parse.quote(password)
@@ -115,7 +121,8 @@ class DigitalstromClient:
                     f"system/enableToken?applicationToken={app_token}&token={token}"
                 )
                 self._app_token = app_token
-                return app_token
+                return str(app_token)
+        return None
 
     async def test_login(self, username: str, password: str) -> bool:
         # Check if the username and password are correct
@@ -126,22 +133,22 @@ class DigitalstromClient:
         )
         return "token" in data.keys()
 
-    def set_app_token(self, app_token: str) -> None:
+    def set_app_token(self, app_token: str | None) -> None:
         # Re-use the app token from a previous login, returned by request_app_token
         self._app_token = app_token
 
     async def get_system_dsuid(self) -> str:
         # Get the dSUID for identifying the system without requiring a login
         data = await self._request_raw("system/getDSID")
-        return data["dSUID"]
+        return str(data["dSUID"])
 
     async def _request_rest_api(self, url: str) -> dict:
         # Make a request to the REST API (v1) instead of JSON API
         if (self.last_request is None) or (
             self.last_request < time.time() - SESSION_TOKEN_TIMEOUT
         ):
-            self._session_token = await self._request_session_token()
-            
+            self._session_token = await self.request_session_token()
+
         async with aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(family=socket.AF_INET, ssl=self.ssl),
             cookies=dict(token=self._session_token),
@@ -171,7 +178,7 @@ class DigitalstromClient:
     async def request(self, url: str) -> dict:
         # Send an authenticated request to the server
         # Previous login via request_app_token or set_app_token is required
-        
+
         # Use REST API for meterings endpoints
         if "apartment/meterings" in url:
             import logging
@@ -181,23 +188,27 @@ class DigitalstromClient:
             data = await self._request_rest_api(url)
             logger.debug("REST API response received: %s", data)
             return data
-        
+
         # Use traditional JSON API for other endpoints
         if (self.last_request is None) or (
             self.last_request < time.time() - SESSION_TOKEN_TIMEOUT
         ):
-            self._session_token = await self._request_session_token()
-            
+            self._session_token = await self.request_session_token()
+
         data = await self._request_raw(url, dict(token=self._session_token))
         self.last_request = time.time()
-        
+
         return data
 
-    def register_event_callback(self, callback: callable) -> None:
+    def register_event_callback(
+        self, callback: Callable[[dict], Awaitable[None]]
+    ) -> None:
         # Register an event callback
         self._event_callbacks.append(callback)
 
-    def unregister_event_callback(self, callback: callable) -> None:
+    def unregister_event_callback(
+        self, callback: Callable[[dict], Awaitable[None]]
+    ) -> None:
         # Unregister an event callback
         if callback in self._event_callbacks:
             self._event_callbacks.remove(callback)
@@ -205,11 +216,13 @@ class DigitalstromClient:
     async def start_event_listener(self) -> None:
         # Start the event listener
         # Previous login via request_app_token or set_app_token is required
+        if type(self.ssl) is not bool and type(self.ssl) is not aiohttp.Fingerprint:
+            raise InvalidFingerprint()
         if self._ws is not None:
             await self.stop_event_listener()
         self._ws = aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(family=socket.AF_INET, ssl=self.ssl),
-            cookies=dict(token=await self._request_session_token()),
+            cookies=dict(token=await self.request_session_token()),
             loop=self._loop,
         )
         try:
@@ -224,11 +237,10 @@ class DigitalstromClient:
                             if event.get("name"):
                                 for callback in self._event_callbacks:
                                     await callback(event)
-                        else:
-                            if msg.tp == aiohttp.MsgType.closed:
-                                break
-                            elif msg.tp == aiohttp.MsgType.error:
-                                break
+                        elif msg.type == aiohttp.WSMsgType.CLOSED:
+                            break
+                        elif msg.type == aiohttp.WSMsgType.ERROR:
+                            break
                     except Exception as e:
                         pass
         except aiohttp.ClientError as e:
@@ -251,7 +263,7 @@ class DigitalstromClient:
             )
         )
 
-    async def event_listener_watchdog(self, time) -> None:
+    async def event_listener_watchdog(self, time: Any) -> None:
         # Restart the event listener if it's not running
         if not self.event_listener_connected():
             try:
